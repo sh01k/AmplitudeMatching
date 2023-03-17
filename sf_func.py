@@ -36,7 +36,10 @@ def CylindricalWave(amp, posSrc, posRcv, k):
     p : Pressure (complex)
     """
     r = distfuncs.cdist(posRcv, posSrc)
-    p = amp * (1j/4) * special.hankel1(0, k * r)
+    if np.isscalar(k):
+        p = amp * (1j/4) * special.hankel1(0, k * r)
+    else:
+        p = amp * (1j/4) * special.hankel1(0, k * r[None,:,:])
     return p
 
 
@@ -118,7 +121,10 @@ def PressureMatching(G, reg, posSPK, des):
     drv: Loudspeaker driving signals
     """
     numSPK = posSPK.shape[0]
-    drv = np.linalg.inv(G.conj().T @ G + reg * np.identity(numSPK)) @ G.conj().T @ des
+    if G.ndim == 2:
+        drv = np.linalg.inv(G.conj().T @ G + reg * np.identity(numSPK)) @ G.conj().T @ des
+    elif G.ndim == 3:
+        drv = np.linalg.inv(np.transpose(G.conj(), (0, 2, 1)) @ G + reg * np.identity(numSPK) ) @ np.transpose(G.conj(), (0, 2, 1)) @ des
     return drv
 
 
@@ -221,26 +227,22 @@ def MM(numSPK, des, G, reg, drv0, **keyargs):
         max_iter = keyargs['max_iter']
     if 'dtol' in keyargs:
         dtol = keyargs['dtol']
+    else:
+        dtol = 0
     A = np.linalg.inv( G.conj().T @ G + reg * np.identity(numSPK) ) @ G.conj().T
     drv = drv0
     drvList = [drv]
     v = np.abs(des) * np.exp(1j * np.angle( G @ drv ))
-    if ('max_iter' in keyargs) and ('dtol' not in keyargs):
-        for k in range(max_iter):
-            drv = A @ v
-            drvList.append(drv)
-            v = np.abs(des) * np.exp(1j * np.angle( G @ drv))
-    elif ('dtol' in keyargs) and ('max_iter' in keyargs):
-        k = 0
-        ddiff = 1.0 
-        while (ddiff > dtol) and (k < max_iter):
-            drv = A @ v
-            drvList.append(drv)
-            ddiff = np.linalg.norm(drvList[k+1]-drvList[k]) / np.linalg.norm(drvList[k])
-            v = np.abs(des) * np.exp(1j * np.angle( G @ drv))
-            if (ddiff <= dtol) or (k>=max_iter):
-                break
-            k += 1
+    k = 0
+    ddiff = 1.0 
+    for k in range(max_iter):
+        drv = A @ v
+        drvList.append(drv)
+        ddiff = np.linalg.norm(drvList[k+1]-drvList[k]) / np.linalg.norm(drvList[k])
+        v = np.abs(des) * np.exp(1j * np.angle( G @ drv))
+        #print("itr: %d, ddiff: %f" % (k, ddiff))
+        if ddiff <= dtol:
+            break
     return drv, drvList
 
 
@@ -256,47 +258,40 @@ def ADMM(numSPK, des, G, reg, drv0, **keyargs):
     keyargs: (max_iter, dtol, rho) = (Maximum number of iterations, Threshold for gradient of cost function, Penalty parameter)
     Returns
     ------
-    drv: Loudspeaker driving signals
-    drvList: List of loudspeaker driving signals for each iteration
+    d: Loudspeaker driving signals
+    dList: List of loudspeaker driving signals for each iteration
     """
     if 'max_iter' in keyargs:
         max_iter = keyargs['max_iter']
     if 'dtol' in keyargs:
         dtol = keyargs['dtol']
+    else:
+        dtol = 0
     if 'rho' in keyargs:
         rho = keyargs['rho']
     else:
         rho = 1.0
-    lam = np.zeros(G.shape[0])
-    p_des = np.abs(des)
+    w = np.zeros(G.shape[0]) # Lagrange multiplier
+    des = np.abs(des)
     d = drv0
-    drvList = [drv0]
+    dList = [drv0]
     Gd = G @ d
     Ginv = np.linalg.inv((2 * reg / rho) * np.identity(numSPK) + G.conj().T @ G)
-    if ('max_iter' in keyargs) and ('dtol' not in keyargs):
-        for k in range(max_iter):
-            h = G @ d + lam / rho
-            e_theta = h/np.abs(h)
-            u = (rho * np.abs(h) + 2 * p_des)/(rho + 2)
-            d = Ginv @ G.conj().T @ (u * e_theta - lam / rho)
-            lam = lam + rho * (G @ d - u * e_theta)
-            drvList.append(d)
-    elif ('dtol' in keyargs) and ('max_iter' in keyargs):
-        k = 0
-        ddiff = 1.0
-        while (ddiff > dtol) and (k < max_iter):
-            h = Gd + lam / rho
-            e_theta = h/np.abs(h)
-            u = (rho * np.abs(h) + 2 * p_des)/(rho + 2)
-            d = Ginv @ G.conj().T @ (u * e_theta - lam / rho)
-            Gd = G @ d
-            lam = lam + rho * (Gd - u * e_theta)
-            drvList.append(d)
-            ddiff = np.linalg.norm(drvList[k+1]-drvList[k]) / np.linalg.norm(drvList[k])
-            if (ddiff <= dtol) or (k>=max_iter):
-                break
-            k += 1
-    return d, drvList
+    k = 0
+    ddiff = 1.0
+    for k in range(max_iter):
+        h = Gd + w / rho
+        phase = h/np.abs(h)
+        mag = (rho * np.abs(h) + 2 * des)/(rho + 2)
+        d = Ginv @ G.conj().T @ (mag * phase - w / rho)
+        Gd = G @ d
+        w = w + rho * (Gd - mag * phase)
+        dList.append(d)
+        ddiff = np.linalg.norm(dList[k+1]-dList[k]) / np.linalg.norm(dList[k])
+        #print("itr: %d, ddiff: %f" % (k, ddiff))
+        if ddiff <= dtol:
+            break
+    return d, dList
 
 
 """Misc"""
@@ -346,8 +341,14 @@ def RectGrid(lenX, lenY, num):
     pos = np.array([x, y]).T
     return pos
 
+
 def plotCircles(ax, pos, rad):
     """Plot circles
+    Parameters
+    ------
+    ax: pyplot.axis
+    pos: Center positions
+    rad: Radius
     """
     num = pos.shape[0]
     for i in np.arange(num):
