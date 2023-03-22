@@ -55,9 +55,14 @@ def SynthSoundField(posSim, posSPK, drv, numSim, k):
     ------
     p : Synthesized pressure distribution
     """
-    G = CylindricalWave(1.0, posSPK, posSim, k)
-    pvec = G @ drv
-    p = pvec.reshape(numSim[0], numSim[1])
+    if np.isscalar(k):
+        G = CylindricalWave(1.0, posSPK, posSim, k)
+        pvec = G @ drv
+        p = pvec.reshape(numSim[0], numSim[1])
+    else:
+        G = CylindricalWave(1.0, posSPK, posSim, k[:,None,None])
+        pvec = np.squeeze(G @ drv[:,:,None])
+        p = pvec.reshape(k.shape[0], numSim[0], numSim[1])
     return pvec, p
 
 
@@ -251,7 +256,7 @@ def ADMM(numSPK, des, G, reg, drv0, **keyargs):
     Parameters
     ------
     numSPK: Number of loudspeakers
-    des: Desired pressure
+    des: Desired amplitude
     G: Transfer function matrix
     reg: Regularization parameter
     drv0: Initial value of driving signals
@@ -272,14 +277,13 @@ def ADMM(numSPK, des, G, reg, drv0, **keyargs):
     else:
         rho = 1.0
     w = np.zeros(G.shape[0]) # Lagrange multiplier
-    des = np.abs(des)
+    des = np.abs(des) # must be positive
     d = drv0
     dList = [drv0]
     Gd = G @ d
     Ginv = np.linalg.inv((2 * reg / rho) * np.identity(numSPK) + G.conj().T @ G)
-    k = 0
     ddiff = 1.0
-    for k in range(max_iter):
+    for kk in range(max_iter):
         h = Gd + w / rho
         phase = h/np.abs(h)
         mag = (rho * np.abs(h) + 2 * des)/(rho + 2)
@@ -287,11 +291,110 @@ def ADMM(numSPK, des, G, reg, drv0, **keyargs):
         Gd = G @ d
         w = w + rho * (Gd - mag * phase)
         dList.append(d)
-        ddiff = np.linalg.norm(dList[k+1]-dList[k]) / np.linalg.norm(dList[k])
-        #print("itr: %d, ddiff: %f" % (k, ddiff))
+        ddiff = np.linalg.norm(dList[kk+1]-dList[kk]) / np.linalg.norm(dList[kk])
+        #print("itr: %d, ddiff: %f" % (kk, ddiff))
         if ddiff <= dtol:
             break
     return d, dList
+
+
+def ADMMdiff(numSPK, numCP, numFreq, des, reg, drv0, G, **keyargs):
+    """ADMM with differential-norm penalty for amplitude matching
+    Parameters
+    ------
+    numSPK: Number of loudspeakers
+    numCP: Number of control points
+    numFreq: Number of frequency
+    des: Desired amplitude
+    reg: Regularization parameter
+    drv: Initial value of driving signals
+    G: Transfer function matrix
+    reg: Regularization parameter
+    drv0: Initial value of driving signals
+    keyargs: (max_iter, dtol, rho) = (Maximum number of iterations, Threshold for gradient of cost function, Penalty parameter)
+    Returns
+    ------
+    d: Loudspeaker driving signals
+    """
+    if 'max_iter' in keyargs:
+        max_iter = keyargs['max_iter']
+    if 'dtol' in keyargs:
+        dtol = keyargs['dtol']
+    else:
+        dtol = 0.0
+    if 'rho' in keyargs:
+        rho = keyargs['rho']
+    else:
+        rho = 1.0
+    
+    w = np.zeros([numFreq, numCP]).astype("complex") # Lagrange multiplier
+    blncr = int(numFreq/2) # Balancer
+    print("Balancer: ", blncr)
+
+    des = np.tile(np.abs(des), (numFreq,1)) # must be positive
+    
+    d = np.squeeze(drv0)
+    Gd = np.squeeze(G @ d[:,:,None])
+    h = Gd + w / rho
+
+    print("Initializing......")
+    GG = np.transpose( G.conj(), (0,2,1)) @ G
+    GGinv = np.zeros([numFreq, numSPK, numSPK]).astype("complex")
+    A = np.zeros([numFreq, numSPK, numSPK]).astype("complex")
+    b = np.zeros([numFreq, numSPK]).astype("complex")
+    for i in (0, numFreq-1):
+        #print(i)
+        GGinv[i,:,:] = np.linalg.inv( GG[i,:,:] + (2.0 * reg / rho) * np.identity(numSPK) )
+        A[i,:,:] = (2.0 * reg / rho) * GGinv[i,:,:]
+    for i in range(1, blncr):
+        #print(i)
+        GGinv[i,:,:] = np.linalg.inv( GG[i,:,:] + (4.0 * reg / rho) * np.identity(numSPK) - (2.0 * reg / rho) * A[i-1,:,:] )
+        A[i,:,:] =  (2.0 * reg / rho) * GGinv[i,:,:]
+    for i in range(numFreq-2, numFreq-blncr-1, -1):
+        #print(i)
+        GGinv[i,:,:] = np.linalg.inv( GG[i,:,:] + (4.0 * reg / rho) * np.identity(numSPK) - (2.0 * reg / rho) * A[i+1,:,:] )
+        A[i,:,:] =  (2.0 * reg / rho) * GGinv[i,:,:]
+
+    AAinv_f = np.linalg.inv(np.identity(numSPK) - A[blncr-1,:,:] @ A[blncr,:,:])
+    AAinv_b = np.linalg.inv(np.identity(numSPK) - A[blncr,:,:] @ A[blncr-1,:,:])
+
+    d_prev = d.copy().reshape(d.shape[0]*d.shape[1])
+    
+    for kk in range(max_iter):
+        u_phase = h / np.abs(h)
+        u_mag = (rho * np.abs(h) + 2.0 * des) / (rho + 2.0)
+        u = u_mag * u_phase
+        p = np.squeeze( np.transpose(G.conj(), (0,2,1)) @ (u - w/rho)[:,:,None] )
+
+        # Update b
+        for i in (0, numFreq-1): 
+            b[i,:] = GGinv[i,:,:] @ p[i,:] 
+        for i in range(1, blncr):
+            b[i,:] = GGinv[i,:,:] @ (p[i,:] + (2.0 * reg / rho) * b[i-1,:])
+        for i in range(numFreq-2, numFreq-blncr-1, -1):
+            b[i,:] = GGinv[i,:,:] @ (p[i,:] + (2.0 * reg / rho) * b[i+1,:])
+
+        # Update d
+        d[blncr-1,:] = AAinv_f @ (b[blncr-1,:] + A[blncr-1,:,:] @ b[blncr,:])
+        d[blncr,:] = AAinv_b  @ (b[blncr,:] + A[blncr,:,:] @ b[blncr-1,:])
+        for i in range(blncr-2,-1,-1):
+            d[i,:] = A[i,:,:] @ d[i+1,:] + b[i,:]
+        for i in range(blncr+1,numFreq):
+            d[i,:] = A[i,:,:] @ d[i-1,:] + b[i,:]
+
+        # Update Lagrange multiplier
+        Gd = np.squeeze(G @ d[:,:,None])
+        w = w + rho * (Gd - u)
+        h = Gd + w / rho
+
+        d_crnt = d.copy().reshape(d.shape[0]*d.shape[1])
+        ddiff = np.linalg.norm(d_crnt-d_prev) / np.linalg.norm(d_prev)
+        d_prev = d_crnt
+        print("itr: %d, ddiff: %f" % (kk, ddiff))
+        if ddiff <= dtol:
+            break
+
+    return d
 
 
 """Misc"""
