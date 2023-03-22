@@ -358,7 +358,7 @@ def ADMMdiff(numSPK, numCP, numFreq, des, reg, drv0, G, **keyargs):
     AAinv_f = np.linalg.inv(np.identity(numSPK) - A[blncr-1,:,:] @ A[blncr,:,:])
     AAinv_b = np.linalg.inv(np.identity(numSPK) - A[blncr,:,:] @ A[blncr-1,:,:])
 
-    d_prev = d.copy().reshape(d.shape[0]*d.shape[1])
+    d_prev = d.flatten()
     
     for kk in range(max_iter):
         u_phase = h / np.abs(h)
@@ -387,10 +387,11 @@ def ADMMdiff(numSPK, numCP, numFreq, des, reg, drv0, G, **keyargs):
         w = w + rho * (Gd - u)
         h = Gd + w / rho
 
-        d_crnt = d.copy().reshape(d.shape[0]*d.shape[1])
+        d_crnt = d.flatten()
         ddiff = np.linalg.norm(d_crnt-d_prev) / np.linalg.norm(d_prev)
         d_prev = d_crnt
-        print("itr: %d, ddiff: %f" % (kk, ddiff))
+        if kk % 100 == 0:
+            print("itr: %d, ddiff: %f" % (kk, ddiff))
         if ddiff <= dtol:
             break
 
