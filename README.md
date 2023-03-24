@@ -18,6 +18,6 @@ Each jupyter notebook file corresponds to the section of the article. To run the
 
 ## Author
 - Takumi Abe
-- [Shoichi Koyama](https://www.sh01.org) (The University of Tokyo, Tokyo, Japan)
+- [Shoichi Koyama](https://www.sh01.org) 
 - [Natsuki Ueno](https://natsuenono.github.io/)
 - [Hiroshi Saruwatari](https://researchmap.jp/read0102891/)
