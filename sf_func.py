@@ -112,6 +112,24 @@ def MSEav(syn, des):
     MSE = 10 * np.log10( np.average( np.linalg.norm(np.abs(syn) - np.abs(des), ord=2, axis=1)**2 / des.shape[1], axis=0 ) )
     return MSE
 
+def MSEma(syn, des, malen=20):
+    """Mean Square Error (MSE) moving averaged for frequency
+    Parameters
+    ------
+    syn: Synthesized pressure
+    des: Desired pressure
+    malen: Length for moving average
+    Returns
+    ------
+    MSEma: Moving averaged Mean Square Error (MSE)
+    """
+    numFreq = syn.shape[0]
+    MSE = []
+    for i in range(numFreq):
+        MSE.append(np.linalg.norm(np.abs(syn[i,:]) - np.abs(des), ord=2)**2 / len(des))
+    MSEma = 10 * np.log10(np.convolve(MSE, np.ones(malen))/malen)[0:numFreq]
+    return MSEma
+
 
 def AC(synB, synQ):
     """Acoustic Contrast (AC)
@@ -126,6 +144,7 @@ def AC(synB, synQ):
     AC = 10 * np.log10( np.linalg.norm(synB)**2/np.linalg.norm(synQ)**2 )
     return AC
 
+
 def ACav(synB, synQ):
     """Average Acoustic Contrast (AC)
     Parameters
@@ -138,6 +157,25 @@ def ACav(synB, synQ):
     """
     AC = 10 * np.log10( np.sum( np.linalg.norm(synB, axis=1)**2 ) / np.sum( np.linalg.norm(synQ, axis=1)**2 ) )
     return AC
+
+
+def ACma(synB, synQ, malen=20):
+    """Acoustic Contrast (AC) moving averaged for frequency
+    Parameters
+    ------
+    synB: Synthesized pressure in bright zone
+    synQ: Synthesized pressure in quiet zone
+    malen: Length for moving average
+    Returns
+    ------
+    ACma: Moving averaged Acoustic Contrast (AC)
+    """
+    numFreq = synB.shape[0]
+    AC = []
+    for i in range(numFreq):
+        AC.append(np.linalg.norm(synB[i,:])**2/np.linalg.norm(synQ[i,:])**2)
+    ACma = 10 * np.log10(np.convolve(AC, np.ones(malen))/malen)[0:numFreq]
+    return ACma
 
 
 """Sound field control functions"""
