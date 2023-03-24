@@ -97,6 +97,22 @@ def MSE(syn, des):
     return MSE
 
 
+def MSEav(syn, des):
+    """Average Mean Square Error (MSE)
+    Parameters
+    ------
+    syn: Synthesized pressure
+    des: Desired pressure
+    Returns
+    ------
+    MSE: Average Mean Square Error (MSE)
+    """
+    numFreq = syn.shape[0]
+    des = np.tile( np.abs(des), (numFreq,1) )
+    MSE = 10 * np.log10( np.average( np.linalg.norm(np.abs(syn) - np.abs(des), ord=2, axis=1)**2 / des.shape[1], axis=0 ) )
+    return MSE
+
+
 def AC(synB, synQ):
     """Acoustic Contrast (AC)
     Parameters
@@ -105,9 +121,22 @@ def AC(synB, synQ):
     synQ: Synthesized pressure in quiet zone
     Returns
     ------
-    MSE: Mean Square Error (MSE)
+    AC: Acoustic Contrast (AC)
     """
     AC = 10 * np.log10( np.linalg.norm(synB)**2/np.linalg.norm(synQ)**2 )
+    return AC
+
+def ACav(synB, synQ):
+    """Average Acoustic Contrast (AC)
+    Parameters
+    ------
+    synB: Synthesized pressure in bright zone
+    synQ: Synthesized pressure in quiet zone
+    Returns
+    ------
+    AC: Average Acoustic Contrast (AC)
+    """
+    AC = 10 * np.log10( np.sum( np.linalg.norm(synB, axis=1)**2 ) / np.sum( np.linalg.norm(synQ, axis=1)**2 ) )
     return AC
 
 
@@ -130,6 +159,7 @@ def PressureMatching(G, reg, posSPK, des):
         drv = np.linalg.inv(G.conj().T @ G + reg * np.identity(numSPK)) @ G.conj().T @ des
     elif G.ndim == 3:
         drv = np.linalg.inv(np.transpose(G.conj(), (0, 2, 1)) @ G + reg * np.identity(numSPK) ) @ np.transpose(G.conj(), (0, 2, 1)) @ des
+        drv = np.squeeze(drv)
     return drv
 
 
@@ -144,10 +174,16 @@ def AcoustContrastControl(Gb, Gq):
     drv: Loudspeaker driving signals
     """
     reg = 1e-4
-    numSPK = Gb.shape[1]
-    A = np.linalg.inv((Gq.conj().T @ Gq) + reg * np.identity(numSPK)) @ (Gb.conj().T @ Gb)
-    (S, U) = np.linalg.eig(A)
-    drv = U[:,0]
+    if Gb.ndim == 2:
+        numSPK = Gb.shape[1]
+        A = np.linalg.inv((Gq.conj().T @ Gq) + reg * np.identity(numSPK)) @ (Gb.conj().T @ Gb)
+        (S, U) = np.linalg.eig(A)
+        drv = U[:,0]
+    elif Gb.ndim == 3:
+        numSPK = Gb.shape[2]
+        A = np.linalg.inv((np.transpose(Gq.conj(), (0,2,1)) @ Gq) + reg * np.identity(numSPK)) @ (np.transpose(Gb.conj(), (0,2,1)) @ Gb)
+        (S, U) = np.linalg.eig(A)
+        drv = U[:,:,0]
     return drv
 
 
