@@ -3,7 +3,7 @@
 ## Description
 Amplitude matching is a multizone sound field control method to synthesize desired amplitude (or magnitude) distributions over a target region with multiple loudspeakers. This repository provides codes for reproducing results in the following article. 
 
-- T. Abe, S. Koyama, N. Ueno, and H. Saruwatari, "Amplitude Matching for Multizone Sound Field Control," *IEEE/ACM Transactions on Audio, Speech, and Language Processing*, DOI: 10.1109/TASLP.2022.3231715, 2020.
+- T. Abe, S. Koyama, N. Ueno, and H. Saruwatari, "Amplitude Matching for Multizone Sound Field Control," *IEEE/ACM Transactions on Audio, Speech, and Language Processing*, DOI: 10.1109/TASLP.2022.3231715, 2023.
 
 The article is open access on [IEEE Xplore](https://doi.org/10.1109/TASLP.2022.3231715).
 
